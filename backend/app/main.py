@@ -27,9 +27,12 @@ origins = [
     "http://localhost:5174",
     "http://localhost:5175",
     "http://localhost:5176",
+    "https://careerpilot-ai-tawny.vercel.app",
 ]
+
 frontend_url = os.getenv("FRONTEND_URL", "").strip()
-if frontend_url:
+
+if frontend_url and frontend_url not in origins:
     origins.append(frontend_url)
 
 app.add_middleware(

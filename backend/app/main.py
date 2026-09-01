@@ -22,23 +22,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 app = FastAPI(title="CareerPilot API", version="1.0.0")
 
-origins = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "http://localhost:5176",
-    "https://careerpilot-ai-tawny.vercel.app",
-    "https://careerpilot-ai-8ih7wtoq-shravya1626s-projects.vercel.app",
-]
 
-frontend_url = os.getenv("FRONTEND_URL", "").strip()
-
-if frontend_url and frontend_url not in origins:
-    origins.append(frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origin_regex=r"https://careerpilot-ai-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

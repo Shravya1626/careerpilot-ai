@@ -28,6 +28,7 @@ origins = [
     "http://localhost:5175",
     "http://localhost:5176",
     "https://careerpilot-ai-tawny.vercel.app",
+    https://careerpilot-ai-8ih7wtoq-shravya1626s-projects.vercel.app,
 ]
 
 frontend_url = os.getenv("FRONTEND_URL", "").strip()

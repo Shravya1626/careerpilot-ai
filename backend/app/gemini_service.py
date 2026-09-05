@@ -1,8 +1,9 @@
+````python
 import json
 import os
 import re
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -32,6 +33,7 @@ class GeminiQuotaError(GeminiServiceError):
 class GeminiService:
     def __init__(self) -> None:
         self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
+
         self.model = (
             os.getenv("GEMINI_MODEL", "").strip()
             or "gemini-3.5-flash"
@@ -107,14 +109,16 @@ class GeminiService:
             return json.loads(cleaned)
 
         except json.JSONDecodeError as exc:
-
             start = cleaned.find("{")
             end = cleaned.rfind("}")
 
             if start != -1 and end != -1 and end > start:
-                return json.loads(
-                    cleaned[start : end + 1]
-                )
+                try:
+                    return json.loads(
+                        cleaned[start:end + 1]
+                    )
+                except json.JSONDecodeError:
+                    pass
 
             raise GeminiServiceError(
                 "Gemini response was not valid JSON"
@@ -174,7 +178,6 @@ class GeminiService:
                     )
 
                     time.sleep(delay)
-
                     continue
 
                 raise GeminiServiceError(
@@ -211,6 +214,10 @@ class GeminiService:
                     f"Gemini API request failed: {message}"
                 ) from exc
 
+        raise GeminiServiceError(
+            "Gemini API request failed after retries."
+        )
+
     def analyze_profile(
         self,
         profile: StudentProfile,
@@ -245,7 +252,10 @@ Do not include markdown.
     def find_opportunities(
         self,
         profile: StudentProfile,
+        category: Optional[str] = None,
     ) -> List[Opportunity]:
+
+        category_text = category or "all relevant opportunities"
 
         prompt = f"""
 You are an AI career opportunity advisor.
@@ -255,6 +265,9 @@ Find relevant current opportunities for this student.
 Student profile:
 
 {profile.model_dump_json(indent=2)}
+
+Category requested:
+{category_text}
 
 Return ONLY valid JSON in this format:
 
@@ -282,8 +295,9 @@ Do not include markdown.
             temperature=0.2,
         )
 
-        opportunities_payload = (
-            payload.get("opportunities", [])
+        opportunities_payload = payload.get(
+            "opportunities",
+            [],
         )
 
         validated: List[Opportunity] = []
@@ -317,7 +331,17 @@ Do not include markdown.
     def generate_projects(
         self,
         profile: StudentProfile,
+        analysis: Optional[CareerAnalysis] = None,
     ) -> List[Project]:
+
+        analysis_text = ""
+
+        if analysis is not None:
+            analysis_text = f"""
+Previous career analysis:
+
+{analysis.model_dump_json(indent=2)}
+"""
 
         prompt = f"""
 You are an AI project mentor.
@@ -327,6 +351,8 @@ Generate 8 personalized project ideas for this student.
 Student profile:
 
 {profile.model_dump_json(indent=2)}
+
+{analysis_text}
 
 Projects should:
 - Match the student's skills and interests.
@@ -377,10 +403,6 @@ IMPORTANT:
                 continue
 
             try:
-
-                # Gemini sometimes returns estimated_weeks
-                # as an integer such as 3, 4, or 5.
-                # Convert it to a string before validation.
                 if "estimated_weeks" in item:
                     item["estimated_weeks"] = str(
                         item["estimated_weeks"]
@@ -409,7 +431,17 @@ IMPORTANT:
     def generate_roadmap(
         self,
         profile: StudentProfile,
+        analysis: Optional[CareerAnalysis] = None,
     ) -> List[RoadmapItem]:
+
+        analysis_text = ""
+
+        if analysis is not None:
+            analysis_text = f"""
+Previous career analysis:
+
+{analysis.model_dump_json(indent=2)}
+"""
 
         prompt = f"""
 You are an AI career roadmap planner.
@@ -418,6 +450,8 @@ Create a personalized learning roadmap
 for the following student:
 
 {profile.model_dump_json(indent=2)}
+
+{analysis_text}
 
 The roadmap should contain practical steps
 that help the student become job-ready.
@@ -475,3 +509,9 @@ Do not include markdown.
                 continue
 
         return validated
+
+
+# Create the shared Gemini service instance.
+# main.py imports this object.
+gemini_service = GeminiService()
+````

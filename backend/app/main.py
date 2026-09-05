@@ -53,6 +53,7 @@ def analyze(profile: StudentProfile) -> CareerAnalysis:
     except GeminiServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
+        print("GEMINI ERROR:", repr(exc))
         raise HTTPException(
             status_code=503,
             detail="CareerPilot couldn't reach Gemini right now."
@@ -113,8 +114,8 @@ def roadmap(payload: RoadmapRequest) -> RoadmapResponse:
     except GeminiServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-    print("GEMINI ERROR:", repr(exc))
-    raise HTTPException(
-        status_code=503,
-        detail="CareerPilot couldn't reach Gemini right now."
-    ) from exc
+        print("GEMINI ERROR:", repr(exc))
+        raise HTTPException(
+            status_code=503,
+            detail="CareerPilot couldn't reach Gemini right now."
+        ) from exc

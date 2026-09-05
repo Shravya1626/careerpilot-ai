@@ -2,14 +2,20 @@ import json
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
-from app.schemas import CareerAnalysis, Opportunity, Project, RoadmapItem, StudentProfile
+from app.schemas import (
+    CareerAnalysis,
+    Opportunity,
+    Project,
+    RoadmapItem,
+    StudentProfile,
+)
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -26,13 +32,20 @@ class GeminiService:
     def __init__(self) -> None:
         self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.model = (
-            os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
+            os.getenv("GEMINI_MODEL", "").strip()
+            or "gemini-3.5-flash"
         ).strip()
-        self.client = genai.Client(api_key=self.api_key) if self.api_key else None
+
+        self.client = (
+            genai.Client(api_key=self.api_key)
+            if self.api_key
+            else None
+        )
 
     def _ensure_client(self) -> genai.Client:
         if not self.client:
             raise GeminiServiceError("Missing GEMINI_API_KEY")
+
         return self.client
 
     def _extract_text(self, response: Any) -> str:
@@ -42,7 +55,9 @@ class GeminiService:
         candidates = getattr(response, "candidates", None) or []
 
         if not candidates:
-            raise GeminiServiceError("Gemini returned no candidates")
+            raise GeminiServiceError(
+                "Gemini returned no candidates"
+            )
 
         parts: List[str] = []
 
@@ -61,16 +76,31 @@ class GeminiService:
         text = "\n".join(parts).strip()
 
         if not text:
-            raise GeminiServiceError("Gemini returned an empty response")
+            raise GeminiServiceError(
+                "Gemini returned an empty response"
+            )
 
         return text
 
-    def _parse_json_payload(self, text: str) -> Dict[str, Any]:
+    def _parse_json_payload(
+        self,
+        text: str
+    ) -> Dict[str, Any]:
+
         cleaned = text.strip()
 
         if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-            cleaned = re.sub(r"\s*```$", "", cleaned)
+            cleaned = re.sub(
+                r"^```(?:json)?\s*",
+                "",
+                cleaned
+            )
+
+            cleaned = re.sub(
+                r"\s*```$",
+                "",
+                cleaned
+            )
 
         try:
             return json.loads(cleaned)
@@ -80,7 +110,9 @@ class GeminiService:
             end = cleaned.rfind("}")
 
             if start != -1 and end != -1 and end > start:
-                return json.loads(cleaned[start : end + 1])
+                return json.loads(
+                    cleaned[start:end + 1]
+                )
 
             raise GeminiServiceError(
                 "Gemini response was not valid JSON"
@@ -110,6 +142,7 @@ class GeminiService:
         max_attempts = 3
 
         for attempt in range(1, max_attempts + 1):
+
             try:
                 response = client.models.generate_content(
                     model=self.model,
@@ -125,11 +158,15 @@ class GeminiService:
                 message = str(exc)
                 error_code = getattr(exc, "code", None)
 
-                if error_code == 503 and attempt < max_attempts:
+                if (
+                    error_code == 503
+                    and attempt < max_attempts
+                ):
                     delay = 5 * (2 ** (attempt - 1))
 
                     print(
-                        f"GEMINI 503 - model temporarily unavailable. "
+                        "GEMINI 503 - model temporarily "
+                        "unavailable. "
                         f"Retrying in {delay}s "
                         f"(attempt {attempt}/{max_attempts})..."
                     )
@@ -138,7 +175,8 @@ class GeminiService:
                     continue
 
                 raise GeminiServiceError(
-                    f"Gemini API temporarily unavailable: {message}"
+                    "Gemini API temporarily unavailable: "
+                    f"{message}"
                 ) from exc
 
             except ClientError as exc:
@@ -151,7 +189,8 @@ class GeminiService:
                 ):
                     raise GeminiQuotaError(
                         "Gemini API quota exceeded. "
-                        "Please wait a bit or upgrade your API plan."
+                        "Please wait a bit or upgrade "
+                        "your API plan."
                     ) from exc
 
                 if (
@@ -165,8 +204,13 @@ class GeminiService:
                     ) from exc
 
                 raise GeminiServiceError(
-                    f"Gemini API request failed: {message}"
+                    "Gemini API request failed: "
+                    f"{message}"
                 ) from exc
+
+        raise GeminiServiceError(
+            "Gemini API request failed after retries."
+        )
 
     def analyze_profile(
         self,
@@ -175,6 +219,7 @@ class GeminiService:
 
         prompt = f"""
 You are CareerPilot, an AI career navigator for students.
+
 Analyze the student's profile and return strict JSON only.
 
 Rules:
@@ -182,7 +227,8 @@ Rules:
 - Never invent experiences, companies, or opportunities.
 - readiness must be an integer from 0 to 100 based on the profile.
 - The JSON object must have exactly these keys:
-  summary, readiness, strengths, skill_gaps, priority_skills, next_action, reason.
+  summary, readiness, strengths, skill_gaps,
+  priority_skills, next_action, reason.
 
 Profile:
 - Name: {profile.name}
@@ -213,9 +259,11 @@ Profile:
     ) -> List[Opportunity]:
 
         prompt = f"""
-You are CareerPilot searching for live opportunities for a student.
+You are CareerPilot searching for live opportunities
+for a student.
 
-Return strict JSON only with an object containing the key 'opportunities'.
+Return strict JSON only with an object containing the
+key 'opportunities'.
 
 Each opportunity must include:
 title, category, organizer, description, eligibility,
@@ -227,7 +275,8 @@ Rules:
 - Use Google Search grounding to find current live opportunities.
 - Prefer official URLs.
 - Discard any opportunity that cannot be verified.
-- Do not invent URLs, deadlines, eligibility, organizers, or companies.
+- Do not invent URLs, deadlines, eligibility,
+  organizers, or companies.
 - Return a diverse set of opportunities and avoid duplicates.
 - If none are verified, return an empty array.
 - Focus on India-relevant opportunities where possible.
@@ -260,19 +309,16 @@ Profile:
         validated: List[Opportunity] = []
         seen: set[tuple[str, str]] = set()
 
-        for item in projects_payload:
-    if not isinstance(item, dict):
-        continue
+        for item in opportunities_payload:
 
-    try:
-        validated.append(
-            Project.model_validate(item)
-        )
+            if not isinstance(item, dict):
+                continue
 
-    except Exception as exc:
-        print("PROJECT VALIDATION ERROR:", exc)
-        print("PROJECT DATA:", item)
-        continue
+            try:
+                opportunity = Opportunity.model_validate(item)
+
+            except Exception:
+                continue
 
             key = (
                 opportunity.url.strip().lower(),
@@ -296,7 +342,8 @@ Profile:
         prompt = f"""
 You are CareerPilot designing personalized student projects.
 
-Return strict JSON only with an object containing the key 'projects'.
+Return strict JSON only with an object containing the
+key 'projects'.
 
 Each project must include:
 title, category, difficulty, estimated_weeks,
@@ -345,6 +392,7 @@ Priority skills:
         validated: List[Project] = []
 
         for item in projects_payload:
+
             if not isinstance(item, dict):
                 continue
 
@@ -353,7 +401,17 @@ Priority skills:
                     Project.model_validate(item)
                 )
 
-            except Exception:
+            except Exception as exc:
+                print(
+                    "PROJECT VALIDATION ERROR:",
+                    exc
+                )
+
+                print(
+                    "PROJECT DATA:",
+                    item
+                )
+
                 continue
 
         return validated
@@ -371,15 +429,18 @@ Priority skills:
         prompt = f"""
 You are CareerPilot designing a personalized roadmap.
 
-Return strict JSON only with an object containing the key 'roadmap'.
+Return strict JSON only with an object containing the
+key 'roadmap'.
 
 Each roadmap item must include:
 week, title, goal, tasks, deliverable.
 
 Rules:
-- Create exactly {weeks} stages because the student targets {profile.target_weeks}.
-- Base the roadmap on target role, skill gaps, current skills,
-  existing experience, weekly hours, and target weeks.
+- Create exactly {weeks} stages because the student
+  targets {profile.target_weeks}.
+- Base the roadmap on target role, skill gaps,
+  current skills, existing experience, weekly hours,
+  and target weeks.
 - Use realistic weekly actions.
 - Do not invent fake milestones.
 
@@ -416,6 +477,7 @@ Priority skills:
         validated: List[RoadmapItem] = []
 
         for item in roadmap_payload:
+
             if not isinstance(item, dict):
                 continue
 

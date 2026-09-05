@@ -260,15 +260,19 @@ Profile:
         validated: List[Opportunity] = []
         seen: set[tuple[str, str]] = set()
 
-        for item in opportunities_payload:
-            if not isinstance(item, dict):
-                continue
+        for item in projects_payload:
+    if not isinstance(item, dict):
+        continue
 
-            try:
-                opportunity = Opportunity.model_validate(item)
+    try:
+        validated.append(
+            Project.model_validate(item)
+        )
 
-            except Exception:
-                continue
+    except Exception as exc:
+        print("PROJECT VALIDATION ERROR:", exc)
+        print("PROJECT DATA:", item)
+        continue
 
             key = (
                 opportunity.url.strip().lower(),

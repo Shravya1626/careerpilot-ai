@@ -17,6 +17,7 @@ from app.schemas import (
     StudentProfile,
 )
 
+
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 
@@ -84,7 +85,7 @@ class GeminiService:
 
     def _parse_json_payload(
         self,
-        text: str
+        text: str,
     ) -> Dict[str, Any]:
 
         cleaned = text.strip()
@@ -93,25 +94,26 @@ class GeminiService:
             cleaned = re.sub(
                 r"^```(?:json)?\s*",
                 "",
-                cleaned
+                cleaned,
             )
 
             cleaned = re.sub(
                 r"\s*```$",
                 "",
-                cleaned
+                cleaned,
             )
 
         try:
             return json.loads(cleaned)
 
         except json.JSONDecodeError as exc:
+
             start = cleaned.find("{")
             end = cleaned.rfind("}")
 
             if start != -1 and end != -1 and end > start:
                 return json.loads(
-                    cleaned[start:end + 1]
+                    cleaned[start : end + 1]
                 )
 
             raise GeminiServiceError(
@@ -155,6 +157,7 @@ class GeminiService:
                 return self._parse_json_payload(text)
 
             except ServerError as exc:
+
                 message = str(exc)
                 error_code = getattr(exc, "code", None)
 
@@ -166,12 +169,12 @@ class GeminiService:
 
                     print(
                         "GEMINI 503 - model temporarily "
-                        "unavailable. "
-                        f"Retrying in {delay}s "
+                        f"unavailable. Retrying in {delay}s "
                         f"(attempt {attempt}/{max_attempts})..."
                     )
 
                     time.sleep(delay)
+
                     continue
 
                 raise GeminiServiceError(
@@ -180,6 +183,7 @@ class GeminiService:
                 ) from exc
 
             except ClientError as exc:
+
                 message = str(exc)
 
                 if (
@@ -204,110 +208,85 @@ class GeminiService:
                     ) from exc
 
                 raise GeminiServiceError(
-                    "Gemini API request failed: "
-                    f"{message}"
+                    f"Gemini API request failed: {message}"
                 ) from exc
-
-        raise GeminiServiceError(
-            "Gemini API request failed after retries."
-        )
 
     def analyze_profile(
         self,
-        profile: StudentProfile
+        profile: StudentProfile,
     ) -> CareerAnalysis:
 
         prompt = f"""
-You are CareerPilot, an AI career navigator for students.
+You are an AI career advisor.
 
-Analyze the student's profile and return strict JSON only.
+Analyze the following student profile:
 
-Rules:
-- Use only the student's actual profile.
-- Never invent experiences, companies, or opportunities.
-- readiness must be an integer from 0 to 100 based on the profile.
-- The JSON object must have exactly these keys:
-  summary, readiness, strengths, skill_gaps,
-  priority_skills, next_action, reason.
+{profile.model_dump_json(indent=2)}
 
-Profile:
-- Name: {profile.name}
-- College: {profile.college}
-- Branch: {profile.branch}
-- Year: {profile.year}
-- CGPA: {profile.cgpa}
-- Skills: {', '.join(profile.skills) if profile.skills else 'none listed'}
-- Projects: {profile.projects}
-- Hackathons: {profile.hackathons}
-- Internships: {profile.internships}
-- Target role: {profile.target_role}
-- Dream company: {profile.dream_company}
-- Domain: {profile.domain}
-- Work type: {profile.work_type}
-- Weekly hours: {profile.weekly_hours}
-- Target weeks: {profile.target_weeks}
+Return ONLY valid JSON.
+
+The JSON must contain:
+- summary
+- strengths
+- skill_gaps
+- recommended_roles
+- recommended_skills
+
+Do not include markdown.
 """
 
-        payload = self._send_prompt(prompt)
+        payload = self._send_prompt(
+            prompt,
+            temperature=0.2,
+        )
 
         return CareerAnalysis.model_validate(payload)
 
     def find_opportunities(
         self,
         profile: StudentProfile,
-        category: str = "all"
     ) -> List[Opportunity]:
 
         prompt = f"""
-You are CareerPilot searching for live opportunities
-for a student.
+You are an AI career opportunity advisor.
 
-Return strict JSON only with an object containing the
-key 'opportunities'.
+Find relevant current opportunities for this student.
 
-Each opportunity must include:
-title, category, organizer, description, eligibility,
-location, mode, deadline, status, url, source,
-match_score, why_it_matches.
+Student profile:
 
-Rules:
-- Use current web information from credible sources.
-- Use Google Search grounding to find current live opportunities.
-- Prefer official URLs.
-- Discard any opportunity that cannot be verified.
-- Do not invent URLs, deadlines, eligibility,
-  organizers, or companies.
-- Return a diverse set of opportunities and avoid duplicates.
-- If none are verified, return an empty array.
-- Focus on India-relevant opportunities where possible.
-- Category requested: {category}
+{profile.model_dump_json(indent=2)}
 
-Profile:
-- Name: {profile.name}
-- College: {profile.college}
-- Branch: {profile.branch}
-- Year: {profile.year}
-- CGPA: {profile.cgpa}
-- Skills: {', '.join(profile.skills) if profile.skills else 'none listed'}
-- Target role: {profile.target_role}
-- Dream company: {profile.dream_company}
-- Domain: {profile.domain}
-- Work type: {profile.work_type}
+Return ONLY valid JSON in this format:
+
+{{
+    "opportunities": [
+        {{
+            "title": "...",
+            "company": "...",
+            "description": "...",
+            "skills": ["..."],
+            "link": "..."
+        }}
+    ]
+}}
+
+Focus on internships, entry-level roles,
+hackathons, competitions, or learning opportunities.
+
+Do not include markdown.
 """
 
         payload = self._send_prompt(
             prompt,
-            use_search=True
+            use_search=True,
+            temperature=0.2,
         )
 
         opportunities_payload = (
             payload.get("opportunities", [])
-            if isinstance(payload, dict)
-            else []
         )
 
         validated: List[Opportunity] = []
-        seen: set[tuple[str, str]] = set()
 
         for item in opportunities_payload:
 
@@ -315,78 +294,79 @@ Profile:
                 continue
 
             try:
-                opportunity = Opportunity.model_validate(item)
+                validated.append(
+                    Opportunity.model_validate(item)
+                )
 
-            except Exception:
+            except Exception as exc:
+
+                print(
+                    "OPPORTUNITY VALIDATION ERROR:",
+                    exc,
+                )
+
+                print(
+                    "OPPORTUNITY DATA:",
+                    item,
+                )
+
                 continue
-
-            key = (
-                opportunity.url.strip().lower(),
-                opportunity.title.strip().lower()
-            )
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-            validated.append(opportunity)
 
         return validated
 
     def generate_projects(
         self,
         profile: StudentProfile,
-        analysis: CareerAnalysis
     ) -> List[Project]:
 
         prompt = f"""
-You are CareerPilot designing personalized student projects.
+You are an AI project mentor.
 
-Return strict JSON only with an object containing the
-key 'projects'.
+Generate 8 personalized project ideas for this student.
 
-Each project must include:
-title, category, difficulty, estimated_weeks,
-required_skills, skills_gained, description,
-problem_statement, tech_stack, career_value,
-why_it_matches.
+Student profile:
 
-Rules:
-- Create 8 diverse projects tailored to the student's profile.
-- Base them on the target role, dream company, current skills,
-  skill gaps, existing projects, hackathons, internships,
-  weekly hours, and target weeks.
-- Do not invent experience or fake constraints.
-- Use only relevant domains and technologies.
+{profile.model_dump_json(indent=2)}
 
-Profile:
-- Name: {profile.name}
-- College: {profile.college}
-- Branch: {profile.branch}
-- Year: {profile.year}
-- Skills: {', '.join(profile.skills) if profile.skills else 'none listed'}
-- Projects: {profile.projects}
-- Hackathons: {profile.hackathons}
-- Internships: {profile.internships}
-- Target role: {profile.target_role}
-- Dream company: {profile.dream_company}
-- Domain: {profile.domain}
-- Weekly hours: {profile.weekly_hours}
-- Target weeks: {profile.target_weeks}
+Projects should:
+- Match the student's skills and interests.
+- Help improve their resume.
+- Be realistic for a student.
+- Have different difficulty levels.
+- Use modern technologies.
+- Be specific and practical.
 
-Analysis summary:
-{analysis.summary}
+Return ONLY valid JSON in this format:
 
-Priority skills:
-{', '.join(analysis.priority_skills)}
+{{
+    "projects": [
+        {{
+            "title": "...",
+            "category": "...",
+            "difficulty": "...",
+            "estimated_weeks": "...",
+            "description": "...",
+            "technologies": ["..."],
+            "skills_gained": ["..."]
+        }}
+    ]
+}}
+
+IMPORTANT:
+- estimated_weeks MUST be returned as a STRING.
+- Example: "4 weeks"
+- Do NOT return estimated_weeks as a number.
+- Do not include markdown.
 """
 
-        payload = self._send_prompt(prompt)
+        payload = self._send_prompt(
+            prompt,
+            temperature=0.4,
+        )
 
-        projects_payload = (
-            payload.get("projects", [])
-            if isinstance(payload, dict)
-            else []
+        projects_payload = payload.get(
+            "projects",
+            [],
         )
 
         validated: List[Project] = []
@@ -397,19 +377,29 @@ Priority skills:
                 continue
 
             try:
+
+                # Gemini sometimes returns estimated_weeks
+                # as an integer such as 3, 4, or 5.
+                # Convert it to a string before validation.
+                if "estimated_weeks" in item:
+                    item["estimated_weeks"] = str(
+                        item["estimated_weeks"]
+                    )
+
                 validated.append(
                     Project.model_validate(item)
                 )
 
             except Exception as exc:
+
                 print(
                     "PROJECT VALIDATION ERROR:",
-                    exc
+                    exc,
                 )
 
                 print(
                     "PROJECT DATA:",
-                    item
+                    item,
                 )
 
                 continue
@@ -419,59 +409,43 @@ Priority skills:
     def generate_roadmap(
         self,
         profile: StudentProfile,
-        analysis: CareerAnalysis
     ) -> List[RoadmapItem]:
 
-        weeks = self._parse_weeks(
-            profile.target_weeks
-        )
-
         prompt = f"""
-You are CareerPilot designing a personalized roadmap.
+You are an AI career roadmap planner.
 
-Return strict JSON only with an object containing the
-key 'roadmap'.
+Create a personalized learning roadmap
+for the following student:
 
-Each roadmap item must include:
-week, title, goal, tasks, deliverable.
+{profile.model_dump_json(indent=2)}
 
-Rules:
-- Create exactly {weeks} stages because the student
-  targets {profile.target_weeks}.
-- Base the roadmap on target role, skill gaps,
-  current skills, existing experience, weekly hours,
-  and target weeks.
-- Use realistic weekly actions.
-- Do not invent fake milestones.
+The roadmap should contain practical steps
+that help the student become job-ready.
 
-Profile:
-- Name: {profile.name}
-- College: {profile.college}
-- Branch: {profile.branch}
-- Year: {profile.year}
-- Skills: {', '.join(profile.skills) if profile.skills else 'none listed'}
-- Target role: {profile.target_role}
-- Dream company: {profile.dream_company}
-- Domain: {profile.domain}
-- Weekly hours: {profile.weekly_hours}
-- Target weeks: {profile.target_weeks}
+Return ONLY valid JSON in this format:
 
-Analysis summary:
-{analysis.summary}
+{{
+    "roadmap": [
+        {{
+            "title": "...",
+            "description": "...",
+            "duration": "...",
+            "skills": ["..."]
+        }}
+    ]
+}}
 
-Skill gaps:
-{', '.join(analysis.skill_gaps)}
-
-Priority skills:
-{', '.join(analysis.priority_skills)}
+Do not include markdown.
 """
 
-        payload = self._send_prompt(prompt)
+        payload = self._send_prompt(
+            prompt,
+            temperature=0.3,
+        )
 
-        roadmap_payload = (
-            payload.get("roadmap", [])
-            if isinstance(payload, dict)
-            else []
+        roadmap_payload = payload.get(
+            "roadmap",
+            [],
         )
 
         validated: List[RoadmapItem] = []
@@ -486,22 +460,18 @@ Priority skills:
                     RoadmapItem.model_validate(item)
                 )
 
-            except Exception:
+            except Exception as exc:
+
+                print(
+                    "ROADMAP VALIDATION ERROR:",
+                    exc,
+                )
+
+                print(
+                    "ROADMAP DATA:",
+                    item,
+                )
+
                 continue
 
         return validated
-
-    def _parse_weeks(
-        self,
-        target_weeks: str
-    ) -> int:
-
-        match = re.search(
-            r"(\d+)",
-            target_weeks or ""
-        )
-
-        return int(match.group(1)) if match else 4
-
-
-gemini_service = GeminiService()
